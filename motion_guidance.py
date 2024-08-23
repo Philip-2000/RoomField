@@ -42,17 +42,11 @@ object_area = torch.Tensor([
     [[.0,.0],[.01,.01]],#window
     [[.0,.0],[.01,.01]],#door
 ])
-
-#[[.0,.0],[.0, .0]]:floating objects, not interactive
-#[[.0,.0],[.9, .9]]:ordinary objects
-#[[.2,.0],[1., .9]]:wardrobe
-#[[.2,.0],[1.,1.2]]:bed
-#[[.0,.0],[1.,1.2]]:coffee table
-#怎么做？将向量参考这个范围进行调制。最好还是保方向那种调制吧，就是说直接在模长上乘个数
-#如何计算其比例呢？
-#边缘上是0*?=0，中间是A/0 * 0 = A
-#rate = A(C - L)/CL
-#这还是个圆形啊
+#[[.0,.0],[.01,.01]]:floating objects, not interactive
+#[[.0,.0],[.9, .9]]: ordinary objects
+#[[.2,.0],[1., .9]]: wardrobe
+#[[.2,.0],[1.,1.2]]: bed
+#[[.0,.0],[1.,1.2]]: coffee table
 
 class motion_guidance():
     def __init__(self, config, betas, scaled=False, minimum=torch.tensor([-6.752, -0.185, -6.573, 0.275, 0.020, 0.0005]), maximum=torch.tensor([6.634, 3.204, 6.8265, 2.6445, 2.789, 2.259]),widoAsObj=False):
