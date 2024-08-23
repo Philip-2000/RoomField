@@ -5,8 +5,8 @@ def crs(A,B):
     return A[:,:,:,0]*B[:,:,:,1]-A[:,:,:,1]*B[:,:,:,0]
 
 object_area = torch.Tensor([
-    [[.0,.0],[.0, .0]],#pendant_lamp
-    [[.0,.0],[.0, .0]],#ceiling_lamp
+    [[.0,.0],[.01,.01]],#pendant_lamp
+    [[.0,.0],[.01,.01]],#ceiling_lamp
     [[.2,.0],[1., .9]],#bookshelf
     [[.0,.0],[.5, .5]],#round_end_table
     [[.0,.0],[.5, .5]],#dining_table
@@ -39,6 +39,8 @@ object_area = torch.Tensor([
     [[.2,.0],[1.,1.2]],#bunk_bed
     [[.2,.0],[1.,1.2]],#single_bed
     [[.2,.0],[1.,1.2]],#bed_frame
+    [[.0,.0],[.01,.01]],#window
+    [[.0,.0],[.01,.01]],#door
 ])
 
 #[[.0,.0],[.0, .0]]:floating objects, not interactive
@@ -154,6 +156,8 @@ class motion_guidance():
         #cond = torch.logical_or(torch.logical_or((absolute[:,:,-1] > zeo),(absolute[:,:,self.bbox_dim+3] > zeo)),(absolute[:,:,-9] > zeo))
         cond = torch.logical_or(torch.logical_or((absolute[:,:,-1] > zeo),(absolute[:,:,self.bbox_dim] > zeo)),(absolute[:,:,self.bbox_dim+1] > zeo))
         #cond: batchsz = 128 : maxObj = 16 : sig = 1
+        if self.fieldTest:
+            return cond.reshape((B,1,O,L))
         condx = cond.reshape((B,1,O,L))#print(condx[0,0,:,0])
         condy = cond.reshape((B,O,1,1,L)).repeat((1,1,self.temp.shape[0],1,1)).reshape((B,-1,1,L))
         return torch.logical_or(condx.repeat((1,O*self.temp.shape[0],1,1)),condy.repeat((1,1,O,1)))
@@ -161,17 +165,20 @@ class motion_guidance():
     def objectField(self, locations, absolute, mats):
         if mats is None:
             self.flattenn(absolute)
+            mats = self.mats
         B,O,W,L=self.batchsz,self.maxObj*self.temp.shape[0],self.maxObj,2
+        if self.fieldTest:
+            O = locations.shape[1]
         #locations: batchsz = 128 : maxObj*sample_dim = 96 : obj_dim = 1 : location_dim = 2
         
         #select from the object_area
-        classId = torch.argmax(absolute[:,:,self.bbox_dim:],dim=-1)
+        classId = torch.argmax(absolute[:,:,self.bbox_dim:-3],dim=-1)
         #classId: batchsz = 128 : maxObj = 12
         oa = object_area.reshape((1,1,-1,L*L)).repeat((B,W,1,1))
         id0= torch.arange(B).reshape((-1,1,1)).repeat(1,W,L*L)
         id1= torch.arange(W).reshape((1,-1,1)).repeat(B,1,L*L)
         id2= classId.reshape((B,W,1)).repeat(1,1,L*L)
-        id3= torch.arange(L*L).reshape((1,1,-1)).repeat(B,O,1)
+        id3= torch.arange(L*L).reshape((1,1,-1)).repeat(B,W,1)
         res= oa[id0,id1,id2,id3]
         scl= res.reshape((B,W,L,L))[:,:,1,:]
         ofs= res.reshape((B,W,L,L))[:,:,0,:]
@@ -179,21 +186,21 @@ class motion_guidance():
 
         C = torch.cat([absolute[:,:,0:1],absolute[:,:,self.translation_dim-1:self.translation_dim]], axis=-1).reshape((B,1,W,L))
         #C: batchsz = 128 : ??=1 : maxObj = 12 : location_dim = 2
-        C+= (ofs.reshape((B,-1,W,1,L)) * mats.reshape((B,1,W,L,L))).sum(axis=-1)
+        C+= (ofs.reshape((B,-1,W,L,1)) * mats.reshape((B,1,W,L,L))).sum(axis=-2)
 
         A = locations.reshape((B,O,1,L)) - C
         #A: batchsz = 128 : maxObj*sample_dim = 96 : maxObj = 12 : location_dim = 2
 
         #transform A into objects' co-ordinate
         sizs = torch.cat([absolute[:,:,self.translation_dim:self.translation_dim+1],absolute[:,:,self.translation_dim+self.size_dim-1:self.translation_dim+self.size_dim]], axis=-1).reshape((B,1,W,L))
-        sizs*= scl.reshape((B,W,L,L))
+        sizs*= scl.reshape((B,1,W,L))
         
         normed = (A.reshape((B,-1,W,1,L)) * mats.reshape((B,1,W,L,L))).sum(axis=-1) / sizs
         #normed: batchsz = 128 : maxObj*sample_dim = 96 : maxObj = 12 : location_dim:2
-
-        L = torch.max(torch.sqrt((normed*normed).sum(axis=-1)),0.001*torch.ones_like(normed[:,:,:,0]))  # L = |normed|  
-        A*= torch.max(torch.zeros_like(L),(torch.ones_like(L) - L) / L).reshape((B,-1,W,1)) * 2.0       # lim_{L→0} H(1 - L)/L*L = H  (2.0)
-        cond = self.invalidObject(absolute).repeat((1,1,1,L))
+         
+        l = torch.max(torch.sqrt((normed*normed).sum(axis=-1)),0.001*torch.ones_like(normed[:,:,:,0]))  # l = |normed|  
+        A*= torch.max(torch.zeros_like(l),(torch.ones_like(l) - l) / l).reshape((B,-1,W,1)) * 2.0       # lim_{l→0} H(1 - l)/l*l = H  (2.0)
+        cond = self.invalidObject(absolute).repeat((1,O if self.fieldTest else 1,1,L))
         A[cond] = torch.zeros_like(A)[cond]
         #A: batchsz = 128 : maxObj*sample_dim = 96 : maxObj = 12 : location_dim = 2
 
@@ -406,7 +413,7 @@ class motion_guidance():
             dfield = self.doorFields(locations,widos)
             
         if not (absolute is None):
-            bfield = self.objectField(locations,absolute,self.mats)
+            bfield = self.objectField(locations,absolute,None)
         return dfield + ofield + ifield + bfield
     
     def printPotential(self, locations, wallTensor, W2, absolute=None, mats=None):
@@ -422,7 +429,7 @@ class motion_guidance():
         ofield, ifield = self.dualField(locations, wallTensor)
         F = ofield+ifield
         if not (absolute is None):
-            F+= self.objectField(locations,absolute,self.mats)
+            F+= self.objectField(locations,absolute,None)
         F = F.reshape((B,W,L,2))
         P = torch.zeros((B,W,L))
         dirs = torch.tensor([[1,0],[-1,0],[0,1],[0,-1]]).reshape(4,1,1,1,2)

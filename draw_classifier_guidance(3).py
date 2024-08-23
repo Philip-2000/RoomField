@@ -433,8 +433,8 @@ if __name__ == "__main__":
 #     ani.save('sine_wave_video.mp4', writer=writer)# More at https://blog.csdn.net/weixin_44274609/article/details/136577650
 # else:
     a, b, c, d, e = dataLoader()
-    guidancePlotter(a, b, c, d, e)
-    #fieldPlotter(a, c, b, e)
-    potentialPlotter(a, b, c)
+    #guidancePlotter(a, b, c, d, e)
+    fieldPlotter(a, c, b, e)
+    #potentialPlotter(a, b, c)
     # a, b, c, d = dataLoaderPT("./SecondBedroom-11669_191_000_time0395.pt","./SecondBedroom-11669 contours.npz")
     # guidancePlotter(a, b, c, d)
