@@ -303,13 +303,16 @@ class motion_guidance():
         self.mats = mats.reshape((B,O,L,L))
         return directions, locations.reshape((B,-1,L)), mats.reshape((B,O,L,L))
 
-    def unmoveables(self,absolute):
+    def unmoveables(self,absolute,hints):
         #absolute: batchsz = 128 : maxObj = 12 : obj_dim = 41?
         flag = torch.zeros_like(absolute[:,:,-1])
         #flag: batchsz = 128 : maxObj = 12
-        return torch.logical_or((absolute[:,:,-3]>flag),torch.logical_or(absolute[:,:,-2]>flag,absolute[:,:,-1]>flag))
+        if self.widoAsObj:
+            return torch.logical_or(hints,torch.logical_or((absolute[:,:,-3]>flag),torch.logical_or(absolute[:,:,-2]>flag,absolute[:,:,-1]>flag)))
+        else:
+            return absolute[:,:,-1]>flag if hints is None else torch.logical_or(hints,absolute[:,:,-1]>flag)
 
-    def synthesis(self, directions, fields, absolute, t):
+    def synthesis(self, directions, fields, absolute, t, hints=None):
         cp = torch.clone(absolute)
         #absolute: batchsz = 128 : maxObj = 12 : bbox_dim = 8
         #directions / locations / fields: batchsz = 128 : maxObj = 12 : sample_dim = 8 : location_dim = 2
@@ -351,7 +354,7 @@ class motion_guidance():
         absolute[:,:,self.bbox_dim-self.angle_dim:self.bbox_dim] = absoluteVector
 
         if self.widoAsObj:
-            fl = self.unmoveables(absolute).reshape((self.batchsz,self.maxObj,1))
+            fl = self.unmoveables(absolute,hints).reshape((self.batchsz,self.maxObj,1))
             #fl: batchsz = 128 : maxObj = 12 : obj_dim:1
             absolute[fl.repeat((1,1,absolute.shape[-1]))] = cp[fl.repeat((1,1,absolute.shape[-1]))]
             translate[fl.repeat((1,1,2))] = (torch.zeros_like(translate))[fl.repeat((1,1,2))]
@@ -361,7 +364,7 @@ class motion_guidance():
         return absolute, translate, mats, scale
 
     #---------------framework--------------#
-    def fulls(self, absolute, wallTensor, t, widos=None):
+    def fulls(self, absolute, wallTensor, t, widos=None, hints=None):
         if self.scaled:
             absolute[:,:,:6] = ((absolute[:,:,:6]+1)/2)*(self.maximum-self.minimum)+self.minimum
 
@@ -390,7 +393,7 @@ class motion_guidance():
         #print(fields)
         #raise NotImplementedError
 
-        result, tr, ro, sc = self.synthesis(directions, fields, absolute, self.tArrangement(t))
+        result, tr, ro, sc = self.synthesis(directions, fields, absolute, self.tArrangement(t), hints)
         #result = self.propogation(result, tr)
         if self.scaled:
             absolute[:,:,:6] =-1+2*((torch.clip(absolute[:,:,:6],self.minimum,self.maximum)-self.minimum)/(self.maximum-self.minimum))
