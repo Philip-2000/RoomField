@@ -159,10 +159,87 @@ class RoomGuidance():
         condy = cond.reshape((B,O,1,1,L)).repeat((1,1,self.temp.shape[0],1,1)).reshape((B,-1,1,L))
         return torch.logical_or(condx.repeat((1,O*self.temp.shape[0],1,1)),condy.repeat((1,1,O,1)))
 
+    def invalidObj(self,absolute):
+        B,O,L=self.batchsz,self.maxObj,1
+        zeo = torch.zeros_like(absolute[:,:,-1])
+        #cond = torch.logical_or(torch.logical_or((absolute[:,:,-1] > zeo),(absolute[:,:,self.bbox_dim+3] > zeo)),(absolute[:,:,-9] > zeo))
+        cond = torch.logical_or(torch.logical_or((absolute[:,:,-1] > zeo),(absolute[:,:,self.bbox_dim] > zeo)),(absolute[:,:,self.bbox_dim+1] > zeo))
+        #cond: batchsz = 128 : maxObj = 16 : sig = 1
+        if self.fieldTest:
+            return cond.reshape((B,1,O,L))
+        condx = cond.reshape((B,1,O,L))#print(condx[0,0,:,0])
+        condy = cond.reshape((B,O,1,1,L)).repeat((1,1,self.temp.shape[0],1,1)).reshape((B,-1,1,L))
+        return torch.logical_or(condx.repeat((1,O*self.temp.shape[0],1,1)),condy.repeat((1,1,O,1)))
+
     def objectField(self, locations, absolute, mats):
+        if mats is None:
+            self.flattenn(absolute)
+            mats = self.mats
+
+
+        
+        #absolute:  batchsz = 128 : maxObj = 12 : bbox_dim = 8
+        center = torch.cat([absolute[:,:,0],absolute[:,:,2]],dim=-1)
+        #center:  batchsz = 128 : maxObj = 12 : L = 2
+        
+        #self.maxObj*self.temp.shape[0]  #s = self.temp.shape[0]
+        B,S,O,L=self.batchsz,locations.shape[1],self.maxObj,2
+
+
+        #select from the object_area
+        classId = torch.argmax(absolute[:,:,self.bbox_dim:],dim=-1)
+        #classId: batchsz = 128 : maxObj = 12
+        oa = object_area.reshape((1,1,-1,L*L)).repeat((B,O,1,1))
+        id0= torch.arange(B).reshape((-1,1,1)).repeat(1,O,L*L)
+        id1= torch.arange(O).reshape((1,-1,1)).repeat(B,1,L*L)
+        id2= classId.reshape((B,O,1)).repeat(1,1,L*L)
+        id3= torch.arange(L*L).reshape((1,1,-1)).repeat(B,O,1)
+        res= oa[id0,id1,id2,id3]
+        scl= res.reshape((B,O,L,L))[:,:,1,:]
+        ofs= res.reshape((B,O,L,L))[:,:,0,:]
+        #scl/ofs: batchsz = 128 : maxObj = 12 : location_dim = 2
+
+        C = torch.cat([absolute[:,:,0:1],absolute[:,:,self.translation_dim-1:self.translation_dim]], axis=-1).reshape((B,1,O,L))
+        #C: batchsz = 128 : ??=1 : maxObj = 12 : location_dim = 2
+        C+= (ofs.reshape((B,-1,O,L,1)) * mats.reshape((B,1,O,L,L))).sum(axis=-2)
+
+        sizs = torch.cat([absolute[:,:,self.translation_dim:self.translation_dim+1],absolute[:,:,self.translation_dim+self.size_dim-1:self.translation_dim+self.size_dim]], axis=-1).reshape((B,1,O,L))
+        sizs*= scl.reshape((B,1,O,L))
+        #sizs: batchsz = 128 : ??=1 : maxObj = 12 : location_dim = 2
+        
+        #mats: batchsz = 128 : maxObj = 12 : location_dim = 2 : location_dim = 2
+        
+        #然后是从location 到各个absolute 的中心的方向，
+        #叫啥呢？叫radial吧。
+        point = locations.reshape((B,-1,1,L))
+        #point:  batchsz = 128 : maxObj*sample_dim = 12*8 = 96 : maxObj = 12 : L = 2
+        radial = center.reshape((B,1,-1,L)) - point
+        #radial:  batchsz = 128 : maxObj*sample_dim = 12*8 = 96 : maxObj = 12 : L = 2
+        Point = point - C
+        #Point:  batchsz = 128 : maxObj*sample_dim = 12*8 = 96 : maxObj = 12 : L = 2
+        
+        #下一步是将point和radial转移到C的坐标体系之下，
+        #转一下然后缩一下就行了，因为C已经减过了
+
+        #
+        Point = ((point - C).reshape((B,-1,O,1,L)) * mats.reshape((B,1,O,L,L))).sum(axis=-1) / sizs
+        Radial = (radial.reshape((B,-1,O,1,L)) * mats.reshape((B,1,O,L,L))).sum(axis=-1) / sizs
+
+        #sizs: batchsz = 128 : maxObj*sample_dim = 12*8 = 96 : maxObj = 12 : location_dim = 2
+        #咋做？应该有已有的代码吧？
+
+        n2 = (Radial*Radial).sum(axis=-1)
+        crs= (Radial[:,:,:,0]*Point[:,:,:,1] + Radial[:,:,:,1]*Point[:,:,:,0])**2
+        n2 = torch.max(n2,crs)
+        
+        #把小于
+        rate = torch.sqrt(n2 - (Radial[:,:,:,0]*Point[:,:,:,1] + Radial[:,:,:,1]*Point[:,:,:,0])**2 - (Radial*Point).sum(axis=-1))/n2
+        field = Radial * rate.reshape((B,-1,O,1))
+
+        
 
         #transform the locations into absolute's world
-        # as [X,0,Z]
+        # as [X,Z]
 
         #transform the -sp.radial into absolute's world
         #what about this?
@@ -173,21 +250,21 @@ class RoomGuidance():
         #we have to give what?
         #do we have to give what?
 
-        # as [A,0,C]
+        # as [A,C]
 
         #calculate the field with formulation in self's world
 
         #the result will be what?
 
         # √(A²+C² - (AZ+CX)²) -AX -CZ
-        #----------------------------------- [A,0,C]
+        #----------------------------------- [A,C]
         #            A²+C²
 
-        #as [F,0,H]
+        #as [F,H]
 
         #transform this field back into the world
-        #as [f,0,h]
-        #field(sp.transl,sp.radial) = [f,0,h]
+        #as [f,h]
+        #field(sp.transl,sp.radial) = [f,h]
 
         pass
 

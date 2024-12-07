@@ -1,10 +1,39 @@
-class Loader():
-    def __init__(self):
-        pass
-        #并行执行过程中的数据加载器和串行的不同，他需要将所有内容都对齐到同样的尺寸之下
+class scneTensor():
+    def __init__(self,lst,batchsz=-1,maxObj=-1,maxWall=-1,format={"obj":[("t",3),("s",3),("o",2),("c",1)],"wal":["tx","tz","nz","nx"]}):
+        from SceneClasses.Basic.Scne import scneDs
+        import torch
+        self.dataset = scneDs(lst=["a"])
 
-    def __call__(self):
+        self.batchsz = len(self.dataset)
+        self.maxObj = maxObj  if maxObj > 0 else max([len(s.OBJES) for s in self.dataset])
+        self.maxWall= maxWall if maxWall> 0 else max([len(s.WALLS) for s in self.dataset])
+        self.objTensor = torch.cat([s.OBJES.toTensor() for s in self.dataset],axis=0)
+        self.walTensor = torch.cat([s.WALLS.toTensor() for s in self.dataset],axis=0)
+        self.widTensor = torch.cat([s.WALLS.windoors.toTensor() for s in self.dataset],axis=0)
+
+
+        #然后的话就是说，我的各大tensor都是基于self.dataset的数据给出的
+        #经过每个时间步之后，还需要对self.dataset中的信息进行调整
+        #调整之后，还是使用scne固有的可视化方法去可视化此场景
+
+
+
+        #还有一个问题就是，对他进行“实验”或“使用”的时候，是怎么做？
+        #我觉得在“非可视化”模式之下，需要支持我们将tensor都提取出来之后，销毁self.dataset对象，
+        #然后在所有时间片全部结束之后，再将self.dataset重构出来，然后对这个最终结果进行可视化
+
+
         pass
+
+
+    def upd(self):
+        for i,s in enumerate(self.dataset):
+            s.OBJES.fromTensor(self.objTensor[i]) #s.WALLS.fromTensor(self.walTensor[i]) #s.WALLS.windoors.fromTensor(self.widTensor[i])
+
+    def tensor(self):
+        pass
+
+    #我觉得关键就是怎么配置，怎么利用一个过程把他们的都穿起来，
 
 """
 
@@ -116,27 +145,12 @@ def dataLoader(dir="../../lab/"):
     #RELAYL.visualizer.plotOver()
 
 def dataLoaderPT(name,wallName):
-    betas = [3 for _ in range(1000)]
-    RELAYL = motion_guidance(A(), betas=betas)
-    PLOTTER = plotSimple(len(ts),RELAYL.batchsz)
-    realObjs = [RELAYL.maxObj for _ in range(RELAYL.batchsz)]
-    realWalls = [RELAYL.maxWall for _ in range(RELAYL.batchsz)]
     pt = torch.tensor(torch.load(name)[0])
     pt = torch.cat([pt[:,-7:-1],torch.cos(pt[:,-1:]),torch.sin(pt[:,-1:]),pt[:,:-7],torch.zeros_like(pt[:,-1:])],axis=-1)
     other = torch.zeros_like(pt[0])
     other[-1] = 1
     other[6] = 1
-        
-    realObjs[0] = pt.shape[0]
     other = other.reshape((1,-1)).repeat((RELAYL.maxObj-pt.shape[0],1))
     absolute = torch.cat([pt,other],axis=0).reshape((1,RELAYL.maxObj,-1))
-    contour = torch.tensor(np.load(wallName, allow_pickle=True)["contour"])
-    mid = torch.tensor([contour[:,0].max() + contour[:,0].min(),contour[:,1].max() + contour[:,1].min()])/2.0
-    wallTensor = torch.cat([contour[:,:2]-mid.reshape((1,-1)),contour[:,2:]],axis=-1)
-    realWalls[0] = wallTensor.shape[0]
-    wallTensor = torch.cat([wallTensor,wallTensor[-1:,:].repeat((RELAYL.maxWall-wallTensor.shape[0],1))],axis=0)
-    wallTensor = torch.tensor(wallTensor).reshape((1,RELAYL.maxWall,-1))
-    PLOTTER.storeRealValues(realWalls, realObjs)
-    return RELAYL, absolute, wallTensor, PLOTTER
 
 """

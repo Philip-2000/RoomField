@@ -3,9 +3,12 @@ class Images():
         pass
         #并行编程结果的可视化也很特殊，
         #因为一整个批的信息是一起处理的，但是在可视化的过程中需要抽丝剥茧，把他们都打开
-        
+        #另外尤其需要注意的是，我们需要有效地管理这些图片的文件结构以及合成视频
 
-    def draw():
+        #搞笑，不想写了，傻逼。
+
+    def __call__(self, scneTensor):
+
         pass
 
 """
@@ -21,7 +24,7 @@ class plotSimple():
         self.realObjs = realObjs
 
     def flatten(self,stateid,batchid):
-        return stateid*self.batchsz + batchid+1
+        return stateid*self.batchsz + batchid+1                                                                                
 
     def plotWall(self,contour,stateid,batchid):
         plt.figure(self.flatten(stateid,batchid))

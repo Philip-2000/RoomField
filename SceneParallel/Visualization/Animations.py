@@ -1,5 +1,6 @@
 class Animations():
     def __init__():
+        #你有啥用？哦想起来了，好像要做那个物体从房间场里滑下去的视频
         pass
 
     def __call__():

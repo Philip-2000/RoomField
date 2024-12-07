@@ -1,0 +1,8 @@
+SceneParallel.egg-info/
+scripts/__pycache__/
+SceneParallel/__pycache__/
+SceneParallel/Operations/__pycache__/
+SceneParallel/Visualization/__pycache__/
+SceneParallel/Modules/__pycache__/
+SceneParallel/Data/__pycache__/
+SceneParallel/Experiments/__pycache__/
