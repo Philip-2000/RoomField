@@ -1,7 +1,10 @@
 class Fields():
     def __init__():
         pass
-
+        #这个的操作方式和那个Images不一样。这个我们打完格点之后要去找这个RoomGuidance来为我计算
+        #而不能去找SceneClasses.Semantic.Fild来计算。啊
+        #嘿
+        
     def __call__():
         pass
 
